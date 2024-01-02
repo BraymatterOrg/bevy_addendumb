@@ -440,6 +440,7 @@ impl<'w> Iterator for DescendantIter<'w> {
     }
 }
 
+#[derive(Reflect)]
 pub struct EnumMap<K: IntoEnumIterator + Eq + PartialEq + Hash, V> {
     map: HashMap<K, V>,
 }
@@ -548,7 +549,7 @@ mod test {
 
         //Non default value should be present
         assert!(map.get(&TestEnum::One) == &2);
-        
+
         //Default Values should be backfilled
         assert!(map.get(&TestEnum::Two) == &0);
         assert!(map.get(&TestEnum::Three) == &0);
