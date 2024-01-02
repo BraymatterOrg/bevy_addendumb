@@ -1,6 +1,6 @@
 use bevy::ecs::query::{ReadOnlyWorldQuery, WorldQuery};
-use bevy::utils::HashMap;
 use bevy::utils::hashbrown::hash_map::{Iter, IterMut};
+use bevy::utils::HashMap;
 use bevy::{ecs::system::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
@@ -464,7 +464,7 @@ impl<K: IntoEnumIterator + Eq + Hash, V> TryFrom<HashMap<K, V>> for EnumMap<K, V
 
     fn try_from(source: HashMap<K, V>) -> Result<Self, Self::Error> {
         for enum_key in K::iter() {
-            if !source.contains_key(&enum_key){
+            if !source.contains_key(&enum_key) {
                 return Err(enum_key);
             }
         }
@@ -473,15 +473,15 @@ impl<K: IntoEnumIterator + Eq + Hash, V> TryFrom<HashMap<K, V>> for EnumMap<K, V
     }
 }
 
-impl<K: IntoEnumIterator + Eq + PartialEq + Hash, V: Default> EnumMap<K, V>{
+impl<K: IntoEnumIterator + Eq + PartialEq + Hash, V: Default> EnumMap<K, V> {
     /// Copies the source hashmap to the enum map and backfills anything missing with the default values
-    pub fn new(mut source: HashMap<K, V>) -> Self{
+    pub fn new(mut source: HashMap<K, V>) -> Self {
         let mut map = HashMap::new();
 
         for enum_key in K::iter() {
-            if let Some(a) = source.remove(&enum_key){
+            if let Some(a) = source.remove(&enum_key) {
                 map.insert(enum_key, a);
-            }else {
+            } else {
                 map.insert(enum_key, V::default());
             }
         }
@@ -491,7 +491,6 @@ impl<K: IntoEnumIterator + Eq + PartialEq + Hash, V: Default> EnumMap<K, V>{
 }
 
 impl<K: IntoEnumIterator + Eq + PartialEq + Hash, V> EnumMap<K, V> {
-
     pub fn get(&self, key: &K) -> &V {
         self.map.get(key).unwrap()
     }
@@ -508,11 +507,50 @@ impl<K: IntoEnumIterator + Eq + PartialEq + Hash, V> EnumMap<K, V> {
         self.map.get_key_value(key).unwrap()
     }
 
-    pub fn iter(&self) -> Iter< '_, K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         self.map.iter()
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<'_, K, V>{
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         self.map.iter_mut()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use bevy::utils::HashMap;
+    use strum_macros::EnumIter;
+
+    use super::*;
+
+    #[derive(EnumIter, Eq, PartialEq, Hash)]
+    pub enum TestEnum {
+        One,
+        Two,
+        Three,
+    }
+
+    #[test]
+    pub fn test_enummap() {
+        //Test Non-Valid Source errors
+        let mut source = HashMap::from([(TestEnum::One, 0), (TestEnum::Two, 1), (TestEnum::Three, 2)]);
+
+        //Should be valid
+        assert!(EnumMap::try_from(source).is_ok());
+
+        //Should be invalid
+        source = HashMap::from([(TestEnum::One, 3)]);
+        assert!(EnumMap::try_from(source).is_err());
+
+        //Test Default Backfill
+        source = HashMap::from([(TestEnum::One, 2)]);
+        let map = EnumMap::new(source);
+
+        //Non default value should be present
+        assert!(map.get(&TestEnum::One) == &2);
+        
+        //Default Values should be backfilled
+        assert!(map.get(&TestEnum::Two) == &0);
+        assert!(map.get(&TestEnum::Three) == &0);
     }
 }
