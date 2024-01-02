@@ -440,7 +440,7 @@ impl<'w> Iterator for DescendantIter<'w> {
     }
 }
 
-#[derive(Reflect)]
+#[derive(Reflect, Eq, PartialEq, Clone)]
 pub struct EnumMap<K: IntoEnumIterator + Eq + PartialEq + Hash, V> {
     map: HashMap<K, V>,
 }
