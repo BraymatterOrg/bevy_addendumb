@@ -5,6 +5,7 @@ use bevy::{ecs::system::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
 use std::collections::VecDeque;
+use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 use std::{marker::PhantomData, time::Duration};
 use strum::IntoEnumIterator;
@@ -474,6 +475,14 @@ impl<K: IntoEnumIterator + Eq + Hash, V> TryFrom<HashMap<K, V>> for EnumMap<K, V
     }
 }
 
+impl<K: Debug + IntoEnumIterator + Eq + PartialEq + Hash, V: Debug + Default> Debug
+    for EnumMap<K, V>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.map.fmt(f)
+    }
+}
+
 impl<K: IntoEnumIterator + Eq + PartialEq + Hash, V: Default> EnumMap<K, V> {
     /// Copies the source hashmap to the enum map and backfills anything missing with the default values
     pub fn new(mut source: HashMap<K, V>) -> Self {
@@ -534,7 +543,8 @@ mod test {
     #[test]
     pub fn test_enummap() {
         //Test Non-Valid Source errors
-        let mut source = HashMap::from([(TestEnum::One, 0), (TestEnum::Two, 1), (TestEnum::Three, 2)]);
+        let mut source =
+            HashMap::from([(TestEnum::One, 0), (TestEnum::Two, 1), (TestEnum::Three, 2)]);
 
         //Should be valid
         assert!(EnumMap::try_from(source).is_ok());
