@@ -71,8 +71,11 @@ pub fn remove_component_after<T: Component>(
     });
 }
 
+/// Inserts the component and keeps it for the given duration, and then removes it. Doesn't replace
+/// existing timed components, but extends the duration if it is greater than the current
+/// component's remaining duration.
 pub struct InsertTimedComponent<T: Any + Component> {
-    pub proc: T,
+    pub component: T,
     pub duration: Duration,
 }
 
@@ -81,9 +84,10 @@ impl<T: Any + Component> EntityCommand for InsertTimedComponent<T> {
         let has_t = world.entity(id).contains::<T>();
 
         if !has_t {
-            world
-                .entity_mut(id)
-                .insert((self.proc, RemoveComponentAfter::<T>::new(self.duration)));
+            world.entity_mut(id).insert((
+                self.component,
+                RemoveComponentAfter::<T>::new(self.duration),
+            ));
 
             return;
         }
