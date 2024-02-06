@@ -1,7 +1,10 @@
+use bevy::asset::UntypedAssetId;
 use bevy::ecs::query::{ReadOnlyWorldQuery, WorldQuery};
 use bevy::ecs::system::EntityCommand;
+use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::utils::hashbrown::hash_map::{Iter, IterMut};
-use bevy::utils::HashMap;
+use bevy::utils::{HashMap, Uuid};
 use bevy::{ecs::system::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
@@ -16,6 +19,9 @@ pub struct EcsAddendumPlugin;
 
 impl Plugin for EcsAddendumPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(MaterialPlugin::<
+            ExtendedMaterial<StandardMaterial, ScrollExtension>,
+        >::default());
         app.register_type::<DespawnAfter>();
         app.add_systems(
             PreUpdate,
@@ -24,6 +30,10 @@ impl Plugin for EcsAddendumPlugin {
         app.add_systems(
             Update,
             (despawn_on_key, despawn_on_gamepad_button, visible_after),
+        );
+        app.world.resource_mut::<Assets<Shader>>().insert(
+            SCROLL_SHADER_HANDLE,
+            Shader::from_wgsl(include_str!("scroll.wgsl"), "scroll.wgsl"),
         );
     }
 }
@@ -136,6 +146,21 @@ pub fn add_material_instance<T: Material>(
         entcmds.insert(mats.add(instance.instance.clone()));
         entcmds.remove::<AddMaterialInstance<T>>();
     });
+}
+
+#[derive(AsBindGroup, Asset, Clone, TypePath)]
+pub struct ScrollExtension {
+    #[uniform(100)]
+    pub scroll: Vec2,
+}
+
+const SCROLL_SHADER_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(123669721584892194424305348291015135349);
+
+impl MaterialExtension for ScrollExtension {
+    fn fragment_shader() -> ShaderRef {
+        SCROLL_SHADER_HANDLE.into()
+    }
 }
 
 #[derive(Component, Default, Reflect)]
