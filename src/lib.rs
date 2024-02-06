@@ -1,9 +1,11 @@
 use bevy::ecs::query::{ReadOnlyWorldQuery, WorldQuery};
+use bevy::ecs::system::EntityCommand;
 use bevy::utils::hashbrown::hash_map::{Iter, IterMut};
 use bevy::utils::HashMap;
 use bevy::{ecs::system::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
+use std::any::{type_name, Any};
 use std::collections::VecDeque;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
@@ -67,6 +69,46 @@ pub fn remove_component_after<T: Component>(
             entcmds.remove::<RemoveComponentAfter<T>>();
         }
     });
+}
+
+/// Inserts the component and keeps it for the given duration, and then removes it. Doesn't replace
+/// existing timed components, but extends the duration if it is greater than the current
+/// component's remaining duration.
+pub struct InsertTimedComponent<T: Any + Component> {
+    pub component: T,
+    pub duration: Duration,
+}
+
+impl<T: Any + Component> EntityCommand for InsertTimedComponent<T> {
+    fn apply(self, id: Entity, world: &mut World) {
+        let has_t = world.entity(id).contains::<T>();
+
+        if !has_t {
+            world.entity_mut(id).insert((
+                self.component,
+                RemoveComponentAfter::<T>::new(self.duration),
+            ));
+
+            return;
+        }
+
+        let mut entity = world.entity_mut(id);
+        let Some(mut remove) = entity.get_mut::<RemoveComponentAfter<T>>() else {
+            warn!(
+                "Timed component `{}` is missing `RemoveComponentAfter`",
+                type_name::<T>()
+            );
+
+            return;
+        };
+
+        // Use the longest duration
+        if remove.timer.remaining() >= self.duration {
+            return;
+        }
+
+        remove.timer = Timer::new(self.duration, TimerMode::Once);
+    }
 }
 
 #[derive(Component, Default)]
