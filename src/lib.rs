@@ -1,10 +1,9 @@
-use bevy::asset::UntypedAssetId;
-use bevy::ecs::query::{ReadOnlyWorldQuery, WorldQuery};
+use bevy::ecs::query::{QueryData, QueryFilter, WorldQuery};
 use bevy::ecs::system::EntityCommand;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::utils::hashbrown::hash_map::{Iter, IterMut};
-use bevy::utils::{HashMap, Uuid};
+use bevy::utils::HashMap;
 use bevy::{ecs::system::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
@@ -137,7 +136,7 @@ pub fn add_material_instance<T: Material>(
     mut cmds: Commands,
     ents_to_add: Query<(&AddMaterialInstance<T>, Entity), Added<AddMaterialInstance<T>>>,
 ) {
-    ents_to_add.for_each(|(instance, ent)| {
+    ents_to_add.iter().for_each(|(instance, ent)| {
         let Some(mut entcmds) = cmds.get_entity(ent) else {
             warn!("Could not get entity for adding a material instance");
             return;
@@ -266,7 +265,7 @@ pub fn despawn_after(
 }
 
 pub fn goodbye_system(departures: Query<Entity, Added<Goodbye>>, mut cmds: Commands) {
-    departures.for_each(|d| {
+    departures.iter().for_each(|d| {
         let Some(entcmds) = cmds.get_entity(d) else {
             warn!("Could not get entity for goodbye system");
             return;
@@ -277,7 +276,7 @@ pub fn goodbye_system(departures: Query<Entity, Added<Goodbye>>, mut cmds: Comma
 }
 
 pub fn to_batman(bruces: Query<Entity, With<ToBatman>>, mut cmds: Commands) {
-    bruces.for_each(|orphan_of_destiny| {
+    bruces.iter().for_each(|orphan_of_destiny| {
         let Some(mut entcmds) = cmds.get_entity(orphan_of_destiny) else {
             warn!("Could not get entity for to_batman");
             return;
@@ -299,7 +298,7 @@ pub fn despawn_on_action<T: Actionlike + Default + Clone + Copy + Eq + PartialEq
     query
         .iter_mut()
         .for_each(|(ent, action_state, despawn_on_action)| {
-            if action_state.just_released(despawn_on_action.0) {
+            if action_state.just_released(&despawn_on_action.0) {
                 if let Some(entity_commands) = cmds.get_entity(ent) {
                     entity_commands.despawn_recursive()
                 }
@@ -320,7 +319,7 @@ impl Default for DespawnOnKeyRelease {
 fn despawn_on_key(
     mut cmds: Commands,
     mut query: Query<(Entity, &DespawnOnKeyRelease)>,
-    input: Res<Input<KeyCode>>,
+    input: Res<ButtonInput<KeyCode>>,
 ) {
     query.iter_mut().for_each(|(ent, despawn_on_key)| {
         if input.just_released(despawn_on_key.0) {
@@ -345,7 +344,7 @@ fn despawn_on_gamepad_button(
     mut cmds: Commands,
     mut query: Query<(Entity, &DespawnOnGamepadButtonRelease)>,
     gamepads: Res<Gamepads>,
-    input: Res<Input<GamepadButton>>,
+    input: Res<ButtonInput<GamepadButton>>,
 ) {
     query.iter_mut().for_each(|(ent, despawn_on_button)| {
         for gamepad in gamepads.iter() {
@@ -423,10 +422,10 @@ pub trait FindNearestExt<'w> {
 impl<'w, 's, Q, F> FindNearestExt<'w> for Query<'w, 's, Q, F>
 where
     's: 'w,
-    F: ReadOnlyWorldQuery,
-    Q: WorldQuery,
+    Q: QueryData,
+    F: QueryFilter,
 {
-    type ReadOnlyReturn = <<Q as WorldQuery>::ReadOnly as WorldQuery>::Item<'w>;
+    type ReadOnlyReturn = <Q::ReadOnly as WorldQuery>::Item<'w>;
     type MutReturn = <Q as WorldQuery>::Item<'w>;
 
     fn get_or_nearest_ancestor(
