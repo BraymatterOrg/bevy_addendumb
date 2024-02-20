@@ -10,6 +10,6 @@ crate-type = ["lib"]
 
 [dependencies]
 bevy = "0.13.0"
-leafwing-input-manager = { git = "https://github.com/Shute052/leafwing-input-manager", rev = "20cd9c9" }
+leafwing-input-manager = "0.13.0"
 strum = "0.25.0"
 strum_macros = "0.25.3"
