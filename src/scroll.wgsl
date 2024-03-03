@@ -13,7 +13,7 @@ struct ScrollExtension {
     scroll: vec2<f32>,
 }
 
-@group(1) @binding(100)
+@group(2) @binding(100)
 var<uniform> scroll_extension: ScrollExtension;
 
 @fragment
