@@ -316,6 +316,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "leafwing-input-manager",
+ "serde",
  "strum",
  "strum_macros",
 ]
