@@ -9,7 +9,7 @@ name = "bevy_addendum"
 crate-type = ["lib"]
 
 [dependencies]
-bevy = "0.13.0"
+bevy = "0.13.2"
 leafwing-input-manager = "0.13.0"
 serde = "1.0"
 strum = "0.25.0"
