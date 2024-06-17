@@ -8,6 +8,7 @@ use bevy::utils::HashMap;
 use bevy::{ecs::system::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
+use serde::{Deserialize, Serialize};
 use std::any::{type_name, Any};
 use std::collections::VecDeque;
 use std::fmt::{self, Debug, Formatter};
@@ -508,7 +509,8 @@ impl<'w> Iterator for DescendantIter<'w> {
     }
 }
 
-#[derive(Reflect, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Reflect, Eq, PartialEq, Clone)]
+#[serde(transparent)]
 pub struct EnumMap<K: IntoEnumIterator + Eq + PartialEq + Hash, V> {
     map: HashMap<K, V>,
 }
