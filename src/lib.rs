@@ -5,7 +5,7 @@ use bevy::render::primitives::Aabb;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::utils::hashbrown::hash_map::{Iter, IterMut};
 use bevy::utils::HashMap;
-use bevy::{ecs::system::Command, prelude::*};
+use bevy::{ecs::world::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
@@ -32,8 +32,8 @@ impl Plugin for EcsAddendumPlugin {
             Update,
             (despawn_on_key, despawn_on_gamepad_button, visible_after),
         );
-        app.world.resource_mut::<Assets<Shader>>().insert(
-            SCROLL_SHADER_HANDLE,
+        app.world_mut().resource_mut::<Assets<Shader>>().insert(
+            SCROLL_SHADER_HANDLE.id(),
             Shader::from_wgsl(include_str!("scroll.wgsl"), "scroll.wgsl"),
         );
     }
@@ -645,12 +645,15 @@ macro_rules! dyn_clone {
 }
 
 #[derive(Default)]
-pub struct W2ssPlugin<CameraMarker: Component + Default + TypePath, A: AabbAlternative + Component> {
+pub struct W2ssPlugin<CameraMarker: Component + Default + TypePath, A: AabbAlternative + Component>
+{
     pub _camera_marker: PhantomData<CameraMarker>,
     pub _aabb_alternative: PhantomData<A>,
 }
 
-impl<CameraMarker: Component + Default + TypePath, A: AabbAlternative + Component> Plugin for W2ssPlugin<CameraMarker, A> {
+impl<CameraMarker: Component + Default + TypePath, A: AabbAlternative + Component> Plugin
+    for W2ssPlugin<CameraMarker, A>
+{
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, (update_world_to_screenspace::<CameraMarker, A>,));
         app.register_type::<WorldToScreenspace<CameraMarker>>();
@@ -712,8 +715,15 @@ pub enum RadiusCalcMethod {
     Z,
 }
 
-pub fn update_world_to_screenspace<CameraMarker: Component + Default, A: AabbAlternative + Component>(
-    mut world_to_ss_query: Query<(Entity, &mut WorldToScreenspace::<CameraMarker>, &GlobalTransform)>,
+pub fn update_world_to_screenspace<
+    CameraMarker: Component + Default,
+    A: AabbAlternative + Component,
+>(
+    mut world_to_ss_query: Query<(
+        Entity,
+        &mut WorldToScreenspace<CameraMarker>,
+        &GlobalTransform,
+    )>,
     camera_query: Query<(&Camera, &GlobalTransform), With<CameraMarker>>,
     children: Query<&Children>,
     aabb_alternative_query: Query<&A>,
@@ -724,7 +734,8 @@ pub fn update_world_to_screenspace<CameraMarker: Component + Default, A: AabbAlt
         return;
     };
 
-    let world_to_viewport = |world_to_ss: &mut WorldToScreenspace<CameraMarker>, transform: Vec3| {
+    let world_to_viewport = |world_to_ss: &mut WorldToScreenspace<CameraMarker>,
+                             transform: Vec3| {
         if world_to_ss.allow_negative_z {
             // same as world_to_viewport but allowing ndc_space_coords.z to be over 1
             world_to_ss.screen_dims.and_then(|target_size| {
@@ -746,57 +757,61 @@ pub fn update_world_to_screenspace<CameraMarker: Component + Default, A: AabbAlt
         }
     };
 
-    world_to_ss_query.iter_mut().for_each(|(entity, mut world_to_ss, transform)| {
-        let ent_tsf = transform.compute_transform();
-        world_to_ss.screen_dims = camera.logical_viewport_size();
-        world_to_ss.screen_position = world_to_viewport(&mut world_to_ss, transform.translation());
+    world_to_ss_query
+        .iter_mut()
+        .for_each(|(entity, mut world_to_ss, transform)| {
+            let ent_tsf = transform.compute_transform();
+            world_to_ss.screen_dims = camera.logical_viewport_size();
+            world_to_ss.screen_position =
+                world_to_viewport(&mut world_to_ss, transform.translation());
 
-        if world_to_ss.radius.is_none() || world_to_ss.recalculate_radius {
-            let aabb = std::iter::once(entity)
-                .chain(children.iter_descendants(entity))
-                .flat_map(|e| {
-                    aabb_alternative_query
-                        .get(e)
-                        .map(|alternative| alternative.aabb())
-                        .or_else(|_| aabb_query.get(e))
-                        .ok()
-                })
-                .next();
+            if world_to_ss.radius.is_none() || world_to_ss.recalculate_radius {
+                let aabb = std::iter::once(entity)
+                    .chain(children.iter_descendants(entity))
+                    .flat_map(|e| {
+                        aabb_alternative_query
+                            .get(e)
+                            .map(|alternative| alternative.aabb())
+                            .or_else(|_| aabb_query.get(e))
+                            .ok()
+                    })
+                    .next();
 
-            // If there's no AABB skip processing
-            let Some(aabb) = aabb else {
+                // If there's no AABB skip processing
+                let Some(aabb) = aabb else {
+                    return;
+                };
+
+                let vec3aabb: Vec3 = aabb.half_extents.into();
+                let scaled_extents = vec3aabb * ent_tsf.scale;
+
+                world_to_ss.radius = Some(match world_to_ss.calc_method {
+                    RadiusCalcMethod::Min => scaled_extents.min_element(),
+                    RadiusCalcMethod::Max => scaled_extents.max_element(),
+                    RadiusCalcMethod::Avg => {
+                        (scaled_extents[0] + scaled_extents[1] + scaled_extents[2]) / 3.0
+                    }
+                    RadiusCalcMethod::X => scaled_extents.x,
+                    RadiusCalcMethod::Y => scaled_extents.y,
+                    RadiusCalcMethod::Z => scaled_extents.z,
+                });
+            }
+
+            let Some(screen_pos) = world_to_ss.screen_position else {
+                world_to_ss.screen_radius = None;
                 return;
             };
 
-            let vec3aabb: Vec3 = aabb.half_extents.into();
-            let scaled_extents = vec3aabb * ent_tsf.scale;
+            let world_position =
+                transform.translation() + Vec3::new(world_to_ss.radius.unwrap_or(0.), 0.0, 0.0);
+            let Some(screen_pos_extents) = world_to_viewport(&mut world_to_ss, world_position)
+            else {
+                world_to_ss.screen_radius = None;
+                return;
+            };
 
-            world_to_ss.radius = Some(match world_to_ss.calc_method {
-                RadiusCalcMethod::Min => scaled_extents.min_element(),
-                RadiusCalcMethod::Max => scaled_extents.max_element(),
-                RadiusCalcMethod::Avg => {
-                    (scaled_extents[0] + scaled_extents[1] + scaled_extents[2]) / 3.0
-                }
-                RadiusCalcMethod::X => scaled_extents.x,
-                RadiusCalcMethod::Y => scaled_extents.y,
-                RadiusCalcMethod::Z => scaled_extents.z,
-            });
-        }
-
-        let Some(screen_pos) = world_to_ss.screen_position else {
-            world_to_ss.screen_radius = None;
-            return;
-        };
-
-        let world_position =
-            transform.translation() + Vec3::new(world_to_ss.radius.unwrap_or(0.), 0.0, 0.0);
-        let Some(screen_pos_extents) = world_to_viewport(&mut world_to_ss, world_position) else {
-            world_to_ss.screen_radius = None;
-            return;
-        };
-
-        world_to_ss.screen_radius = Some(screen_pos_extents.distance(screen_pos));
-    })
+            world_to_ss.screen_radius = Some(screen_pos_extents.distance(screen_pos));
+        })
 }
 
 #[cfg(test)]
