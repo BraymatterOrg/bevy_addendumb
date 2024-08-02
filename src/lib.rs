@@ -676,8 +676,6 @@ pub struct WorldToScreenspace<CameraMarker: Component + Default> {
     pub _camera_marker: PhantomData<CameraMarker>,
 }
 
-impl<CameraMarker: Component + Default> WorldToScreenspace<CameraMarker> {}
-
 impl<C: Component + Default> WorldToScreenspace<C> {
     pub fn new<A: AabbAlternative + Component>(
         transform: &GlobalTransform,
