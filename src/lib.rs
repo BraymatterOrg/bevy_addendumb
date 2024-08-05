@@ -1,5 +1,5 @@
 use bevy::ecs::query::{QueryData, QueryFilter, WorldQuery};
-use bevy::ecs::system::EntityCommand;
+use bevy::ecs::system::{EntityCommand, SystemParam};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::render::primitives::Aabb;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
@@ -677,6 +677,107 @@ pub struct WorldToScreenspace<CameraMarker: Component + Default> {
 }
 
 impl<C: Component + Default> WorldToScreenspace<C> {
+    pub fn new<A: AabbAlternative + Component>(
+        transform: &GlobalTransform,
+        entity: Entity,
+        param: &WorldToScreenspaceParam<C, A>,
+    ) -> Self {
+        let mut world_to_screenspace = Self::default();
+        world_to_screenspace.update(transform, entity, param);
+        world_to_screenspace
+    }
+
+    pub fn update<A: AabbAlternative + Component>(
+        &mut self,
+        transform: &GlobalTransform,
+        entity: Entity,
+        param: &WorldToScreenspaceParam<C, A>,
+    ) {
+        let WorldToScreenspaceParam {
+            camera_query,
+            children,
+            aabb_alternative_query,
+            aabb_query,
+        } = param;
+
+        let Ok((camera, cam_gtsf)) = camera_query.get_single() else {
+            debug!("Could not get camera for WorldToScreenSpace calculations.");
+            return;
+        };
+
+        let world_to_viewport = |world_to_ss: &mut WorldToScreenspace<C>, transform: Vec3| {
+            if world_to_ss.allow_negative_z {
+                // same as world_to_viewport but allowing ndc_space_coords.z to be over 1
+                world_to_ss.screen_dims.and_then(|target_size| {
+                    camera
+                        .world_to_ndc(cam_gtsf, transform)
+                        .map(|ndc_space_coords| {
+                            let mut ndc_space_coords_2 = ndc_space_coords.truncate();
+                            if ndc_space_coords.z < 0. {
+                                ndc_space_coords_2 = -ndc_space_coords_2;
+                            }
+                            let mut viewport_position =
+                                (ndc_space_coords_2 + Vec2::ONE) / 2.0 * target_size;
+                            viewport_position.y = target_size.y - viewport_position.y;
+                            viewport_position
+                        })
+                })
+            } else {
+                camera.world_to_viewport(cam_gtsf, transform)
+            }
+        };
+
+        let ent_tsf = transform.compute_transform();
+        self.screen_dims = camera.logical_viewport_size();
+        self.screen_position = world_to_viewport(self, transform.translation());
+
+        if self.radius.is_none() || self.recalculate_radius {
+            let aabb = std::iter::once(entity)
+                .chain(children.iter_descendants(entity))
+                .flat_map(|e| {
+                    aabb_alternative_query
+                        .get(e)
+                        .map(|alternative| alternative.aabb())
+                        .or_else(|_| aabb_query.get(e))
+                        .ok()
+                })
+                .next();
+
+            // If there's no AABB skip processing
+            let Some(aabb) = aabb else {
+                return;
+            };
+
+            let vec3aabb: Vec3 = aabb.half_extents.into();
+            let scaled_extents = vec3aabb * ent_tsf.scale;
+
+            self.radius = Some(match self.calc_method {
+                RadiusCalcMethod::Min => scaled_extents.min_element(),
+                RadiusCalcMethod::Max => scaled_extents.max_element(),
+                RadiusCalcMethod::Avg => {
+                    (scaled_extents[0] + scaled_extents[1] + scaled_extents[2]) / 3.0
+                }
+                RadiusCalcMethod::X => scaled_extents.x,
+                RadiusCalcMethod::Y => scaled_extents.y,
+                RadiusCalcMethod::Z => scaled_extents.z,
+            });
+        }
+
+        let Some(screen_pos) = self.screen_position else {
+            self.screen_radius = None;
+            return;
+        };
+
+        let world_position =
+            transform.translation() + Vec3::new(self.radius.unwrap_or(0.), 0.0, 0.0);
+        let Some(screen_pos_extents) = world_to_viewport(self, world_position) else {
+            self.screen_radius = None;
+            return;
+        };
+
+        self.screen_radius = Some(screen_pos_extents.distance(screen_pos));
+    }
+
     ///Returns an Option as to whether the object is considered on_screen, with Some returning the screen dimensions and position of the object on screen
     pub fn on_screen(&self) -> Option<(Vec2, Vec2)> {
         if self.screen_dims.is_some() && self.screen_position.is_some() {
@@ -715,6 +816,19 @@ pub enum RadiusCalcMethod {
     Z,
 }
 
+#[derive(SystemParam)]
+pub struct WorldToScreenspaceParam<
+    'w,
+    's,
+    CameraMarker: Component + Default,
+    A: AabbAlternative + Component,
+> {
+    camera_query: Query<'w, 's, (&'static Camera, &'static GlobalTransform), With<CameraMarker>>,
+    children: Query<'w, 's, &'static Children>,
+    aabb_alternative_query: Query<'w, 's, &'static A>,
+    aabb_query: Query<'w, 's, &'static Aabb>,
+}
+
 pub fn update_world_to_screenspace<
     CameraMarker: Component + Default,
     A: AabbAlternative + Component,
@@ -724,94 +838,13 @@ pub fn update_world_to_screenspace<
         &mut WorldToScreenspace<CameraMarker>,
         &GlobalTransform,
     )>,
-    camera_query: Query<(&Camera, &GlobalTransform), With<CameraMarker>>,
-    children: Query<&Children>,
-    aabb_alternative_query: Query<&A>,
-    aabb_query: Query<&Aabb>,
+    param: WorldToScreenspaceParam<CameraMarker, A>,
 ) {
-    let Ok((camera, cam_gtsf)) = camera_query.get_single() else {
-        debug!("Could not get camera for WorldToScreenSpace calculations.");
-        return;
-    };
-
-    let world_to_viewport = |world_to_ss: &mut WorldToScreenspace<CameraMarker>,
-                             transform: Vec3| {
-        if world_to_ss.allow_negative_z {
-            // same as world_to_viewport but allowing ndc_space_coords.z to be over 1
-            world_to_ss.screen_dims.and_then(|target_size| {
-                camera
-                    .world_to_ndc(cam_gtsf, transform)
-                    .map(|ndc_space_coords| {
-                        let mut ndc_space_coords_2 = ndc_space_coords.truncate();
-                        if ndc_space_coords.z < 0. {
-                            ndc_space_coords_2 = -ndc_space_coords_2;
-                        }
-                        let mut viewport_position =
-                            (ndc_space_coords_2 + Vec2::ONE) / 2.0 * target_size;
-                        viewport_position.y = target_size.y - viewport_position.y;
-                        viewport_position
-                    })
-            })
-        } else {
-            camera.world_to_viewport(cam_gtsf, transform)
-        }
-    };
-
     world_to_ss_query
         .iter_mut()
         .for_each(|(entity, mut world_to_ss, transform)| {
-            let ent_tsf = transform.compute_transform();
-            world_to_ss.screen_dims = camera.logical_viewport_size();
-            world_to_ss.screen_position =
-                world_to_viewport(&mut world_to_ss, transform.translation());
-
-            if world_to_ss.radius.is_none() || world_to_ss.recalculate_radius {
-                let aabb = std::iter::once(entity)
-                    .chain(children.iter_descendants(entity))
-                    .flat_map(|e| {
-                        aabb_alternative_query
-                            .get(e)
-                            .map(|alternative| alternative.aabb())
-                            .or_else(|_| aabb_query.get(e))
-                            .ok()
-                    })
-                    .next();
-
-                // If there's no AABB skip processing
-                let Some(aabb) = aabb else {
-                    return;
-                };
-
-                let vec3aabb: Vec3 = aabb.half_extents.into();
-                let scaled_extents = vec3aabb * ent_tsf.scale;
-
-                world_to_ss.radius = Some(match world_to_ss.calc_method {
-                    RadiusCalcMethod::Min => scaled_extents.min_element(),
-                    RadiusCalcMethod::Max => scaled_extents.max_element(),
-                    RadiusCalcMethod::Avg => {
-                        (scaled_extents[0] + scaled_extents[1] + scaled_extents[2]) / 3.0
-                    }
-                    RadiusCalcMethod::X => scaled_extents.x,
-                    RadiusCalcMethod::Y => scaled_extents.y,
-                    RadiusCalcMethod::Z => scaled_extents.z,
-                });
-            }
-
-            let Some(screen_pos) = world_to_ss.screen_position else {
-                world_to_ss.screen_radius = None;
-                return;
-            };
-
-            let world_position =
-                transform.translation() + Vec3::new(world_to_ss.radius.unwrap_or(0.), 0.0, 0.0);
-            let Some(screen_pos_extents) = world_to_viewport(&mut world_to_ss, world_position)
-            else {
-                world_to_ss.screen_radius = None;
-                return;
-            };
-
-            world_to_ss.screen_radius = Some(screen_pos_extents.distance(screen_pos));
-        })
+            world_to_ss.update(transform, entity, &param);
+        });
 }
 
 #[cfg(test)]
