@@ -853,6 +853,7 @@ pub fn update_world_to_screenspace<
         });
 }
 
+/// Waits until the given asset is loaded, then runs the given system
 #[derive(Component)]
 pub struct AwaitAsset {
     pub asset: UntypedHandle,
