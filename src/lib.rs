@@ -1,5 +1,6 @@
+use bevy::asset::LoadState;
 use bevy::ecs::query::{QueryData, QueryFilter, WorldQuery};
-use bevy::ecs::system::{EntityCommand, SystemParam};
+use bevy::ecs::system::{EntityCommand, SystemId, SystemParam};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::render::primitives::Aabb;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
@@ -30,7 +31,12 @@ impl Plugin for EcsAddendumPlugin {
         );
         app.add_systems(
             Update,
-            (despawn_on_key, despawn_on_gamepad_button, visible_after),
+            (
+                despawn_on_key,
+                despawn_on_gamepad_button,
+                visible_after,
+                await_asset,
+            ),
         );
         app.world_mut().resource_mut::<Assets<Shader>>().insert(
             SCROLL_SHADER_HANDLE.id(),
@@ -845,6 +851,42 @@ pub fn update_world_to_screenspace<
         .for_each(|(entity, mut world_to_ss, transform)| {
             world_to_ss.update(transform, entity, &param);
         });
+}
+
+/// Waits until the given asset is loaded, then runs the given system
+#[derive(Component)]
+pub struct AwaitAsset {
+    pub asset: UntypedHandle,
+    pub system: SystemId<Entity>,
+}
+
+impl AwaitAsset {
+    pub fn new(asset: impl Into<UntypedHandle>, system: SystemId<Entity>) -> Self {
+        Self {
+            asset: asset.into(),
+            system,
+        }
+    }
+}
+
+fn await_asset(
+    awaiters_query: Query<(Entity, &AwaitAsset)>,
+    assets: Res<AssetServer>,
+    mut cmds: Commands,
+) {
+    for (awaiter, await_asset) in &awaiters_query {
+        use LoadState::*;
+
+        let state = assets.load_state(await_asset.asset.id());
+
+        if let Loaded = state {
+            cmds.run_system_with_input(await_asset.system, awaiter);
+        }
+
+        if let Loaded | Failed(_) = state {
+            cmds.entity(awaiter).remove::<AwaitAsset>();
+        }
+    }
 }
 
 #[cfg(test)]
