@@ -5,15 +5,16 @@ use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::render::primitives::Aabb;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 use bevy::utils::hashbrown::hash_map::{Iter, IterMut};
-use bevy::utils::HashMap;
+use bevy::utils::{HashMap, TypeIdMap};
 use bevy::{ecs::world::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
 use serde::{Deserialize, Serialize};
-use std::any::{type_name, Any};
+use std::any::{type_name, Any, TypeId};
 use std::collections::VecDeque;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
+use std::ops::{Add, Div, Mul, Sub};
 use std::{marker::PhantomData, time::Duration};
 use strum::IntoEnumIterator;
 
@@ -886,6 +887,151 @@ fn await_asset(
         if let Loaded | Failed(_) = state {
             cmds.entity(awaiter).remove::<AwaitAsset>();
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct Modifier<T> {
+    t: T,
+    timer: Option<Timer>,
+}
+
+impl<T> Modifier<T> {
+    pub fn timed(&mut self, duration: Duration) -> &mut Self {
+        self.timer = Some(Timer::new(duration, TimerMode::Once));
+        self
+    }
+}
+
+/// Stores modifiers for some data with types as the key. May store modifiers that expire after a
+/// duration
+#[derive(Default, Debug)]
+pub struct TypedModifiers<T = f32>(TypeIdMap<Vec<Modifier<T>>>);
+
+impl<T> TypedModifiers<T> {
+    pub fn insert<K: 'static>(&mut self, val: T) -> &mut Modifier<T> {
+        let Self(mods) = self;
+
+        let k = TypeId::of::<K>();
+        mods.insert(
+            k,
+            vec![Modifier {
+                t: val,
+                timer: None,
+            }],
+        );
+
+        &mut mods
+            .get_mut(&k)
+            .expect("couldn't get entry that was just inserted")[0]
+    }
+
+    /// Insert the value, but stack with other modifiers on the same type instead of replacing them
+    pub fn push<K: 'static>(&mut self, val: T) -> &mut Modifier<T> {
+        let Self(mods) = self;
+
+        let k = TypeId::of::<K>();
+        mods.entry(k).or_default().push(Modifier {
+            t: val,
+            timer: None,
+        });
+
+        mods.get_mut(&k)
+            .expect("couldn't get entry that was just inserted")
+            .last_mut()
+            .expect("couldn't get entry that was just inserted")
+    }
+
+    pub fn remove<K: 'static>(&mut self) {
+        let Self(mods) = self;
+        mods.remove(&TypeId::of::<K>());
+    }
+
+    pub fn tick(&mut self, delta: Duration) {
+        let Self(mods) = self;
+
+        mods.retain(|_, mods| {
+            mods.retain_mut(|modifier| {
+                if let Some(ref mut timer) = modifier.timer {
+                    timer.tick(delta);
+                    !timer.finished()
+                } else {
+                    true
+                }
+            });
+
+            !mods.is_empty()
+        });
+    }
+}
+
+impl<T: Add<Output = T> + Clone> TypedModifiers<T> {
+    pub fn add(&self, mut val: T) -> T {
+        let Self(mods) = self;
+
+        for modifier in mods.values().flatten() {
+            val = val + modifier.t.clone();
+        }
+
+        val
+    }
+}
+
+impl<T: Sub<Output = T> + Clone> TypedModifiers<T> {
+    pub fn sub(&self, mut val: T) -> T {
+        let Self(mods) = self;
+
+        for modifier in mods.values().flatten() {
+            val = val - modifier.t.clone();
+        }
+
+        val
+    }
+}
+
+impl<T: Mul<Output = T> + Clone> TypedModifiers<T> {
+    pub fn mul(&self, mut val: T) -> T {
+        let Self(mods) = self;
+
+        for modifier in mods.values().flatten() {
+            val = val * modifier.t.clone();
+        }
+
+        val
+    }
+}
+
+impl<T: Div<Output = T> + Clone> TypedModifiers<T> {
+    pub fn div(&self, mut val: T) -> T {
+        let Self(mods) = self;
+
+        for modifier in mods.values().flatten() {
+            val = val / modifier.t.clone();
+        }
+
+        val
+    }
+}
+
+impl TypedModifiers<f32> {
+    pub fn mul_duration(&self, mut val: Duration) -> Duration {
+        let Self(mods) = self;
+
+        for modifier in mods.values().flatten() {
+            val = val.mul_f32(modifier.t);
+        }
+
+        val
+    }
+
+    pub fn div_duration(&self, mut val: Duration) -> Duration {
+        let Self(mods) = self;
+
+        for modifier in mods.values().flatten() {
+            val = val.div_f32(modifier.t);
+        }
+
+        val
     }
 }
 
