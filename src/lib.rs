@@ -904,7 +904,37 @@ impl<T> Modifier<T> {
 }
 
 /// Stores modifiers for some data with types as the key. May store modifiers that expire after a
-/// duration
+/// duration. Useful for temporary effects that modify stats (ex mana generation rate, damage,
+/// speed) where the sources of the modifiers are in completely different parts of the code.
+///
+/// ```no_run
+/// const BASE_MANA_GENERATION_PERIOD: f32 = Duration::from_secs(1);
+///
+/// let mut modifiers = TypedModifiers::default();
+///
+/// struct ManaGenTotem;
+/// if player_near_mana_gen_totem() {
+///     modifiers.push::<ManaGenTotem>(1.5);
+/// }
+///
+/// if player_also_near_other_mana_gen_totem() {
+///     // `push` allows multiple values to stack with the same type key
+///     modifiers.push::<ManaGenTotem>(1.5);
+/// }
+///
+/// struct ManaGenBuff;
+/// if apply_mana_gen_buff() {
+///     // `insert` overwrites other values with the same type key. So, the player can only benefit
+///     // from the buff once.
+///     modifiers.insert::<ManaGenBuff>(2.).timed(Duration::from_secs(2));
+/// }
+///
+/// // A lot of time passed, so the mana buff is removed
+/// modifiers.tick(Duration::from_secs(3));
+///
+/// // This is the period with the modifiers applied
+/// let mana_gen_period = modifiers.div_duration(BASE_MANA_GENERATION_PERIOD);
+/// ```
 #[derive(Default, Debug)]
 pub struct TypedModifiers<T = f32>(TypeIdMap<Vec<Modifier<T>>>);
 
