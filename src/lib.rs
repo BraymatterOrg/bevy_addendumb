@@ -1081,6 +1081,7 @@ impl<T: VectorSpace> ExpDecay for T {
     }
 }
 
+/// Target for `MoveTo`
 #[derive(Clone, Copy)]
 pub enum MoveToTarget {
     Point(Vec3),
@@ -1112,6 +1113,9 @@ impl MoveToTarget {
     }
 }
 
+/// Moves an entity to a target along a hermite spline. If `start_vel` equals `end_vel` and they
+/// have the same direction as the displacement between the entity and its target, it moves in a
+/// straight line.
 pub struct MoveTo {
     /// Initialized the first time `move_toward_entity` runs
     start_pos: Option<Vec3>,
