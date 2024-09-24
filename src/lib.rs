@@ -1,6 +1,8 @@
 use bevy::asset::LoadState;
+use bevy::ecs::component::{ComponentHooks, StorageType};
 use bevy::ecs::query::{QueryData, QueryFilter, WorldQuery};
-use bevy::ecs::system::{EntityCommand, SystemId, SystemParam};
+use bevy::ecs::system::{EntityCommand, QueryLens, SystemId, SystemParam};
+use bevy::math::VectorSpace;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::render::primitives::Aabb;
 use bevy::render::render_resource::{AsBindGroup, ShaderRef};
@@ -37,6 +39,7 @@ impl Plugin for EcsAddendumPlugin {
                 despawn_on_gamepad_button,
                 visible_after,
                 await_asset,
+                move_to,
             ),
         );
         app.world_mut().resource_mut::<Assets<Shader>>().insert(
@@ -1062,6 +1065,152 @@ impl TypedModifiers<f32> {
         }
 
         val
+    }
+}
+
+pub trait ExpDecay {
+    /// Decays `self` to `b`. Stable in varying framerates. Especially useful in situations where
+    /// you don't store the starting value or `b` is moving. Decay values between 1 and 25 tend to
+    /// work well.
+    fn exp_decay(self, b: Self, decay: f32, dt: Duration) -> Self;
+}
+
+impl<T: VectorSpace> ExpDecay for T {
+    fn exp_decay(self, b: Self, decay: f32, dt: Duration) -> Self {
+        b + (self - b) * (-decay * dt.as_secs_f32()).exp()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum MoveToTarget {
+    Point(Vec3),
+    Entity(Entity),
+}
+
+impl From<Vec3> for MoveToTarget {
+    fn from(value: Vec3) -> Self {
+        MoveToTarget::Point(value)
+    }
+}
+
+impl From<Entity> for MoveToTarget {
+    fn from(value: Entity) -> Self {
+        MoveToTarget::Entity(value)
+    }
+}
+
+impl MoveToTarget {
+    pub fn position(self, mut gtsfs_query: QueryLens<&GlobalTransform>) -> Option<Vec3> {
+        match self {
+            MoveToTarget::Point(target) => Some(target),
+            MoveToTarget::Entity(target) => gtsfs_query
+                .query()
+                .get(target)
+                .ok()
+                .map(GlobalTransform::translation),
+        }
+    }
+}
+
+pub struct MoveTo {
+    /// Initialized the first time `move_toward_entity` runs
+    start_pos: Option<Vec3>,
+    start_vel: Vec3,
+
+    /// The point to move to
+    target: MoveToTarget,
+    /// Affects how sharply the entity changes path to follow a moving target
+    path_correction: f32,
+    /// A position which the entity moves to, which smoothly lerps to the target position
+    aimed_pos: Option<Vec3>,
+    end_vel: Vec3,
+
+    vel: Vec3,
+    timer: Timer,
+}
+
+impl MoveTo {
+    pub fn new(
+        start_vel: Vec3,
+        target: impl Into<MoveToTarget>,
+        end_vel: Vec3,
+        duration: Duration,
+        path_correction: f32,
+    ) -> Self {
+        Self {
+            start_pos: None,
+            start_vel,
+            target: target.into(),
+            path_correction,
+            aimed_pos: None,
+            end_vel,
+            vel: start_vel,
+            timer: Timer::new(duration, TimerMode::Once),
+        }
+    }
+}
+
+impl Component for MoveTo {
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    fn register_component_hooks(hooks: &mut ComponentHooks) {
+        hooks.on_insert(|mut world, entity, _| {
+            let move_to = world
+                .get::<MoveTo>(entity)
+                .expect("`MoveTo` is missing in its `on_insert` hook");
+
+            // I don't think it's possible to get a `Query` from a `DeferredWorld` here, so can't
+            // reuse `MoveToTarget::position`
+            let target_pos = match move_to.target {
+                MoveToTarget::Point(target) => Some(target),
+                MoveToTarget::Entity(target) => world
+                    .get::<GlobalTransform>(target)
+                    .map(GlobalTransform::translation),
+            };
+
+            if let Some(target_pos) = target_pos {
+                world
+                    .get_mut::<MoveTo>(entity)
+                    .expect("`MoveTo` is missing even though we just had it")
+                    .aimed_pos = Some(target_pos);
+            }
+        });
+    }
+}
+
+pub fn move_to(
+    mut tsf_query: Query<&GlobalTransform>,
+    mut mover_query: Query<(&mut MoveTo, &mut Transform)>,
+    time: Res<Time>,
+) {
+    for (mut mover, mut mover_tsf) in mover_query.iter_mut() {
+        if let Some(target) = mover.target.position(tsf_query.as_query_lens()) {
+            // The target still exists
+            let path_correction = mover.path_correction;
+            let aimed_pos = mover.aimed_pos.get_or_insert(target);
+            *aimed_pos = aimed_pos.exp_decay(target, path_correction, time.delta());
+        }
+
+        let Some(aimed_pos) = mover.aimed_pos else {
+            // The target didn't exist when `MoveTo` was inserted, so just move at the initial
+            // velocity. If the game despawns out of bounds entities (distance check), the entity
+            // will leave bounds and be despawned.
+            mover_tsf.translation += mover.vel * time.delta_seconds();
+            continue;
+        };
+
+        let start_pos = *mover.start_pos.get_or_insert(mover_tsf.translation);
+
+        let curve =
+            CubicHermite::new([start_pos, aimed_pos], [mover.start_vel, mover.end_vel]).to_curve();
+
+        mover.timer.tick(time.delta());
+        let t = mover.timer.fraction();
+        mover_tsf.translation = curve.position(t);
+
+        let vel = curve.velocity(t);
+        mover.vel = vel;
+        mover_tsf.look_to(vel, Vec3::Y);
     }
 }
 
