@@ -9,8 +9,11 @@ name = "bevy_addendum"
 crate-type = ["lib"]
 
 [dependencies]
-bevy = "0.14.0"
+bevy = "0.14.2"
 leafwing-input-manager = "0.14.0"
 serde = "1.0"
 strum = "0.26.3"
 strum_macros = "0.26.4"
+interpolation = "0.3"
+rand = "0.8.5"
+num = "0.4.1"

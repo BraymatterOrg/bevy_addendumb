@@ -1,3 +1,5 @@
+pub mod util;
+
 use bevy::asset::LoadState;
 use bevy::ecs::query::{QueryData, QueryFilter, WorldQuery};
 use bevy::ecs::system::{EntityCommand, SystemId, SystemParam};
