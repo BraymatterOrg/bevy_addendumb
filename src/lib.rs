@@ -19,14 +19,16 @@ use std::hash::Hash;
 use std::ops::{Add, Div, Mul, Sub};
 use std::{marker::PhantomData, time::Duration};
 use strum::IntoEnumIterator;
+use util::UtilPlugin;
 
 pub struct EcsAddendumPlugin;
 
 impl Plugin for EcsAddendumPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(MaterialPlugin::<
-            ExtendedMaterial<StandardMaterial, ScrollExtension>,
-        >::default());
+        app.add_plugins((
+            MaterialPlugin::<ExtendedMaterial<StandardMaterial, ScrollExtension>>::default(),
+            UtilPlugin,
+        ));
         app.register_type::<DespawnAfter>();
         app.add_systems(
             PreUpdate,
