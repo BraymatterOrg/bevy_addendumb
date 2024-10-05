@@ -1071,7 +1071,7 @@ impl TypedModifiers<f32> {
 
 #[macro_export]
 macro_rules! exp_ret {
-    ($var:ident = $expr:expr, $str:literal) => {
+    ($var:pat = $expr:expr, $str:literal) => {
         let Some($var) = $expr else {
             error!($str);
             return;
@@ -1081,7 +1081,7 @@ macro_rules! exp_ret {
 
 #[macro_export]
 macro_rules! exp_continue {
-    ($var:ident = $expr:expr, $str:literal) => {
+    ($var:pat = $expr:expr, $str:literal) => {
         let Some($var) = $expr else {
             error!($str);
             continue;
