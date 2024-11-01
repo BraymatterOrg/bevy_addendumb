@@ -11,9 +11,11 @@ use bevy::utils::{HashMap, TypeIdMap};
 use bevy::{ecs::world::Command, prelude::*};
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::Actionlike;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::any::{type_name, Any, TypeId};
 use std::collections::VecDeque;
+use std::f32::consts::TAU;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 use std::ops::{Add, Div, Mul, Sub};
@@ -1081,6 +1083,22 @@ impl<T: VectorSpace> ExpDecay for T {
     }
 }
 
+pub trait ElasticOut {
+    /// Performs the elastic out ease function. `a` increases the frequency and somewhat increases
+    /// the amplitude. `b` decreases the amplitude and increases the precision near 1. `a` should be
+    /// an integer at least 1. If the function must end near 1, `b` should be at least 3. 2 for `a`
+    /// and 10 for `b` are good defaults.
+    fn elastic_out(self, a: Self, b: Self) -> Self;
+}
+
+// Can't impl for a trait-bound generic bc `clamp` isn't from a trait
+impl ElasticOut for f32 {
+    fn elastic_out(self, a: Self, b: Self) -> Self {
+        let clamped = self.clamp(0., 1.);
+        -(-a * TAU * (clamped + 1.)).cos() * 2f32.powf(-b * clamped) + 1.
+    }
+}
+
 /// Target for `MoveTo`
 #[derive(Clone, Copy)]
 pub enum MoveToTarget {
@@ -1215,6 +1233,87 @@ pub fn move_to(
         let vel = curve.velocity(t);
         mover.vel = vel;
         mover_tsf.look_to(vel, Vec3::Y);
+    }
+}
+
+pub struct SampleCtx<'a, P> {
+    pub param: &'a P,
+    pub progress: f32,
+}
+
+/// Scatters positions onto a plane
+pub trait Scatter {
+    /// Data needed to sample initialized once per `scatter` call, ex a seed
+    type SampleParam;
+
+    fn init(&self, rng: &mut impl Rng) -> Self::SampleParam;
+    fn sample(&self, ctx: SampleCtx<Self::SampleParam>, rng: &mut impl Rng) -> Vec2;
+
+    fn scatter(
+        &self,
+        count: u32,
+        center: Vec3,
+        normal: Dir3,
+        scale: f32,
+        rng: &mut impl Rng,
+    ) -> Vec<Vec3> {
+        let param = self.init(rng);
+        let tsf = GlobalTransform::from(
+            Transform::from_translation(center)
+                .looking_to(normal, Dir3::Y)
+                .with_scale(Vec3::splat(scale)),
+        );
+
+        (0..count)
+            .map(|i| {
+                tsf.transform_point(
+                    self.sample(
+                        SampleCtx {
+                            param: &param,
+                            progress: i as f32 / count as f32,
+                        },
+                        rng,
+                    )
+                    .extend(0.),
+                )
+            })
+            .collect()
+    }
+}
+
+pub struct NoScatter;
+
+impl Scatter for NoScatter {
+    type SampleParam = ();
+
+    fn init(&self, _: &mut impl Rng) {}
+
+    fn sample(&self, _: SampleCtx<()>, _: &mut impl Rng) -> Vec2 {
+        Vec2::ZERO
+    }
+}
+
+pub struct UniformCircleScatter;
+
+impl Scatter for UniformCircleScatter {
+    type SampleParam = ();
+
+    fn init(&self, _: &mut impl Rng) {}
+
+    fn sample(&self, _: SampleCtx<()>, rng: &mut impl Rng) -> Vec2 {
+        Vec2::from_angle(rng.gen_range(0. ..TAU)) * rng.gen::<f32>().sqrt()
+    }
+}
+
+pub struct ExpandingCircleScatter;
+
+impl Scatter for ExpandingCircleScatter {
+    type SampleParam = ();
+
+    fn init(&self, _: &mut impl Rng) {}
+
+    fn sample(&self, ctx: SampleCtx<()>, rng: &mut impl Rng) -> Vec2 {
+        Vec2::from_angle(rng.gen_range(0. ..TAU)) * ctx.progress.sqrt()
     }
 }
 
