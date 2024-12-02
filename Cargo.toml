@@ -9,8 +9,8 @@ name = "bevy_addendum"
 crate-type = ["lib"]
 
 [dependencies]
-bevy = "0.14.0"
-leafwing-input-manager = "0.14.0"
+bevy = "0.15.0"
+leafwing-input-manager = { git = "https://github.com/Leafwing-Studios/leafwing-input-manager", rev = "195c97c" }
 rand = "0.8.5"
 serde = "1.0"
 strum = "0.26.3"

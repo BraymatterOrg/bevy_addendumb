@@ -156,7 +156,7 @@ pub fn add_material_instance<T: Material>(
             return;
         };
 
-        entcmds.insert(mats.add(instance.instance.clone()));
+        entcmds.insert(MeshMaterial3d(mats.add(instance.instance.clone())));
         entcmds.remove::<AddMaterialInstance<T>>();
     });
 }
@@ -228,7 +228,7 @@ pub trait DespawnAfterCommandsExt {
 
 impl Command for DespawnAfterCommand {
     fn apply(self, world: &mut World) {
-        let Some(mut entref) = world.get_entity_mut(self.target) else {
+        let Ok(mut entref) = world.get_entity_mut(self.target) else {
             warn!("Could not find entity for DespawnAfterCommand");
             return;
         };
@@ -239,7 +239,7 @@ impl Command for DespawnAfterCommand {
 
 impl<'w, 's> DespawnAfterCommandsExt for Commands<'w, 's> {
     fn despawn_after<T: Into<DespawnAfterCommand>>(&mut self, despawn_after: T) {
-        self.add(despawn_after.into());
+        self.queue(despawn_after.into());
     }
 }
 
@@ -346,27 +346,22 @@ fn despawn_on_key(
 
 #[derive(Component, Reflect)]
 #[reflect(Component)]
-pub struct DespawnOnGamepadButtonRelease(pub GamepadButtonType);
+pub struct DespawnOnGamepadButtonRelease(pub GamepadButton);
 
 impl Default for DespawnOnGamepadButtonRelease {
     fn default() -> Self {
-        Self(GamepadButtonType::Start)
+        Self(GamepadButton::Start)
     }
 }
 
 fn despawn_on_gamepad_button(
     mut cmds: Commands,
     mut query: Query<(Entity, &DespawnOnGamepadButtonRelease)>,
-    gamepads: Res<Gamepads>,
-    input: Res<ButtonInput<GamepadButton>>,
+    gamepads_query: Query<&Gamepad>,
 ) {
     query.iter_mut().for_each(|(ent, despawn_on_button)| {
-        for gamepad in gamepads.iter() {
-            let button = GamepadButton {
-                gamepad,
-                button_type: despawn_on_button.0,
-            };
-            if input.just_released(button) {
+        for gamepad in gamepads_query.iter() {
+            if gamepad.just_released(despawn_on_button.0) {
                 if let Some(entity_commands) = cmds.get_entity(ent) {
                     entity_commands.despawn_recursive()
                 }
@@ -447,8 +442,7 @@ where
         entity: Entity,
         parent_query: &Query<&Parent>,
     ) -> Option<Self::ReadOnlyReturn> {
-        std::iter::once(entity)
-            .chain(parent_query.iter_ancestors(entity))
+        Iterator::chain(std::iter::once(entity), parent_query.iter_ancestors(entity))
             .find_map(|e| self.get(e).ok())
     }
 
@@ -457,8 +451,7 @@ where
         entity: Entity,
         parent_query: &Query<&Parent>,
     ) -> Option<Self::MutReturn> {
-        let matched = std::iter::once(entity)
-            .chain(parent_query.iter_ancestors(entity))
+        let matched = Iterator::chain(std::iter::once(entity), parent_query.iter_ancestors(entity))
             .find(|e| self.contains(*e));
         matched.and_then(|e| self.get_mut(e).ok())
     }
@@ -468,8 +461,7 @@ where
         entity: Entity,
         parent_query: &Query<&Parent>,
     ) -> bool {
-        std::iter::once(entity)
-            .chain(parent_query.iter_ancestors(entity))
+        Iterator::chain(std::iter::once(entity), parent_query.iter_ancestors(entity))
             .any(|e| self.contains(e))
     }
 }
@@ -735,7 +727,7 @@ impl<C: Component + Default> WorldToScreenspace<C> {
                         })
                 })
             } else {
-                camera.world_to_viewport(cam_gtsf, transform)
+                camera.world_to_viewport(cam_gtsf, transform).ok()
             }
         };
 
@@ -863,11 +855,11 @@ pub fn update_world_to_screenspace<
 #[derive(Component)]
 pub struct AwaitAsset {
     pub asset: UntypedHandle,
-    pub system: SystemId<Entity>,
+    pub system: SystemId<In<Entity>>,
 }
 
 impl AwaitAsset {
-    pub fn new(asset: impl Into<UntypedHandle>, system: SystemId<Entity>) -> Self {
+    pub fn new(asset: impl Into<UntypedHandle>, system: SystemId<In<Entity>>) -> Self {
         Self {
             asset: asset.into(),
             system,
@@ -912,7 +904,7 @@ impl<T> Modifier<T> {
 /// duration. Useful for temporary effects that modify stats (ex mana generation rate, damage,
 /// speed) where the sources of the modifiers are in completely different parts of the code.
 ///
-/// ```no_run
+/// ```ignore
 /// const BASE_MANA_GENERATION_PERIOD: f32 = Duration::from_secs(1);
 ///
 /// let mut modifiers = TypedModifiers::default();
@@ -1217,14 +1209,22 @@ pub fn move_to(
             // The target didn't exist when `MoveTo` was inserted, so just move at the initial
             // velocity. If the game despawns out of bounds entities (distance check), the entity
             // will leave bounds and be despawned.
-            mover_tsf.translation += mover.vel * time.delta_seconds();
+            mover_tsf.translation += mover.vel * time.delta_secs();
             continue;
         };
 
         let start_pos = *mover.start_pos.get_or_insert(mover_tsf.translation);
 
         let curve =
-            CubicHermite::new([start_pos, aimed_pos], [mover.start_vel, mover.end_vel]).to_curve();
+            match CubicHermite::new([start_pos, aimed_pos], [mover.start_vel, mover.end_vel])
+                .to_curve()
+            {
+                Ok(curve) => curve,
+                Err(err) => {
+                    error!("couldn't create a hermite curve for `MoveTo`: {err}");
+                    continue;
+                }
+            };
 
         mover.timer.tick(time.delta());
         let t = mover.timer.fraction();
