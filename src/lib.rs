@@ -1256,7 +1256,7 @@ pub trait Scatter {
         normal: Dir3,
         scale: f32,
         rng: &mut impl Rng,
-    ) -> Vec<Vec3> {
+    ) -> impl Iterator<Item = Vec3> {
         let param = self.init(rng);
         let tsf = GlobalTransform::from(
             Transform::from_translation(center)
@@ -1264,20 +1264,18 @@ pub trait Scatter {
                 .with_scale(Vec3::splat(scale)),
         );
 
-        (0..count)
-            .map(|i| {
-                tsf.transform_point(
-                    self.sample(
-                        SampleCtx {
-                            param: &param,
-                            progress: i as f32 / count as f32,
-                        },
-                        rng,
-                    )
-                    .extend(0.),
+        (0..count).map(move |i| {
+            tsf.transform_point(
+                self.sample(
+                    SampleCtx {
+                        param: &param,
+                        progress: i as f32 / count as f32,
+                    },
+                    rng,
                 )
-            })
-            .collect()
+                .extend(0.),
+            )
+        })
     }
 }
 
@@ -1314,6 +1312,26 @@ impl Scatter for ExpandingCircleScatter {
 
     fn sample(&self, ctx: SampleCtx<()>, rng: &mut impl Rng) -> Vec2 {
         Vec2::from_angle(rng.gen_range(0. ..TAU)) * ctx.progress.sqrt()
+    }
+}
+
+/// Outer radius is 1. Scale with the `scale` param in `scatter`.
+pub struct DiskScatter {
+    pub inner_radius: f32,
+}
+
+impl Scatter for DiskScatter {
+    // Inner radius squared. Just cached math.
+    type SampleParam = f32;
+
+    fn init(&self, _: &mut impl Rng) -> f32 {
+        self.inner_radius * self.inner_radius
+    }
+
+    fn sample(&self, ctx: SampleCtx<f32>, rng: &mut impl Rng) -> Vec2 {
+        let &inner_radius_squared = ctx.param;
+        Vec2::from_angle(rng.gen_range(0. ..TAU))
+            * (rng.gen::<f32>() * (1. - inner_radius_squared) + inner_radius_squared)
     }
 }
 
