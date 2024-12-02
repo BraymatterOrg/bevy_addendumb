@@ -1316,11 +1316,11 @@ impl Scatter for ExpandingCircleScatter {
 }
 
 /// Outer radius is 1. Scale with the `scale` param in `scatter`.
-pub struct AnnulusScatter {
+pub struct DiskScatter {
     pub inner_radius: f32,
 }
 
-impl Scatter for AnnulusScatter {
+impl Scatter for DiskScatter {
     // Inner radius squared. Just cached math.
     type SampleParam = f32;
 
