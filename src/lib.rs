@@ -237,7 +237,7 @@ impl Command for DespawnAfterCommand {
     }
 }
 
-impl<'w, 's> DespawnAfterCommandsExt for Commands<'w, 's> {
+impl DespawnAfterCommandsExt for Commands<'_, '_> {
     fn despawn_after<T: Into<DespawnAfterCommand>>(&mut self, despawn_after: T) {
         self.queue(despawn_after.into());
     }
@@ -1312,6 +1312,26 @@ impl Scatter for ExpandingCircleScatter {
 
     fn sample(&self, ctx: SampleCtx<()>, rng: &mut impl Rng) -> Vec2 {
         Vec2::from_angle(rng.gen_range(0. ..TAU)) * ctx.progress.sqrt()
+    }
+}
+
+pub struct EaseScatter<S: Scatter> {
+    pub scatter: S,
+    pub ease: EaseFunction,
+}
+
+impl<S: Scatter> Scatter for EaseScatter<S> {
+    type SampleParam = S::SampleParam;
+
+    fn init(&self, rng: &mut impl Rng) -> Self::SampleParam {
+        self.scatter.init(rng)
+    }
+
+    fn sample(&self, mut ctx: SampleCtx<Self::SampleParam>, rng: &mut impl Rng) -> Vec2 {
+        // `sample_unchecked` doesn't panic, it just returns values with no guarantees outside of
+        // [0, 1], which is okay because we know we're in [0, 1]
+        ctx.progress = EasingCurve::new(0., 1., self.ease).sample_unchecked(ctx.progress);
+        self.scatter.sample(ctx, rng)
     }
 }
 
