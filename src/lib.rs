@@ -370,6 +370,15 @@ fn despawn_on_gamepad_button(
     });
 }
 
+///Despawns all entities with the specified component immediately
+pub fn despawn_ents_with_component<T: Component>(mut cmds: Commands, query: Query<Entity, With<T>>){
+    query.iter().for_each(|ent|{
+        if let Some(entcmds) = cmds.get_entity(ent) {
+            entcmds.despawn_recursive();
+        }
+    })
+}
+
 /// A component that will set an entity to [`Visibility::Visible`] after the given duration.
 /// The duration is affected by pausing the game.
 #[derive(Component, Reflect, Default)]
