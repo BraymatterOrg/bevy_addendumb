@@ -1198,6 +1198,8 @@ pub struct FollowSpline {
     end_vel: Vec3,
 
     vel: Vec3,
+    ///Remove Component after timer expires. Should be true by default, but for things like elemental missile it can be false so it always 'finds' the targeted entity/location
+    auto_remove: bool,
     timer: Timer,
 }
 
@@ -1208,6 +1210,7 @@ impl FollowSpline {
         end_vel: Vec3,
         duration: Duration,
         path_correction: f32,
+        auto_remove: bool
     ) -> Self {
         Self {
             start_pos: None,
@@ -1217,6 +1220,7 @@ impl FollowSpline {
             aimed_pos: None,
             end_vel,
             vel: start_vel,
+            auto_remove,
             timer: Timer::new(duration, TimerMode::Once),
         }
     }
@@ -1310,7 +1314,7 @@ pub fn move_to(
         mover_tsf.look_to(vel, Vec3::Y);
 
         //If the timer's expired remove this component
-        if t >= 1.0 {
+        if t >= 1.0 && mover.auto_remove {
             let Some(mut entcmds) = cmds.get_entity(mover_ent) else {
                 warn!("Could not find entcmds to remove follow spline from");
                 return;
