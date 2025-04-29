@@ -1,7 +1,8 @@
 use std::{any::{type_name, Any}, collections::VecDeque, marker::PhantomData, time::Duration};
 
-use bevy::{asset::LoadState, ecs::{query::{QueryData, QueryFilter, WorldQuery}, system::SystemId}, pbr::{ExtendedMaterial, MaterialExtension}, prelude::*, render::render_resource::{AsBindGroup, ShaderRef}};
+use bevy::{asset::LoadState, ecs::{query::{QueryData, QueryFilter, WorldQuery}, system::SystemId}, pbr::{ExtendedMaterial, MaterialExtension}, prelude::*, render::render_resource::{AsBindGroup, ShaderRef}, utils::HashMap};
 use leafwing_input_manager::{prelude::ActionState, Actionlike};
+use serde::{Deserialize, Serialize};
 
 use crate::transform::move_to;
 
@@ -9,9 +10,13 @@ pub struct EcsAddendumPlugin;
 
 impl Plugin for EcsAddendumPlugin {
     fn build(&self, app: &mut App) {
+        //TODO: Move Scrolling Stuff to it's own module
         app.add_plugins(MaterialPlugin::<
             ExtendedMaterial<StandardMaterial, ScrollExtension>,
         >::default());
+
+        app.init_resource::<SystemRefRepo>();
+
         app.register_type::<DespawnAfter>();
         app.add_systems(
             PreUpdate,
@@ -546,16 +551,58 @@ fn await_asset(
     }
 }
 
-//TODO: This could just be remove component after...?
-#[derive(Debug)]
-pub struct Modifier<T> {
-    t: T,
-    timer: Option<Timer>,
+
+/// Contains a string identifier typically loaded from a non-compile time location
+/// At runtime the program will register SystemId's into a Hashmap using the reference as a key, and the entity containing the registered system as a value
+#[derive(Deserialize, Serialize, Reflect, Clone, Debug)]
+pub struct Sysref(pub String);
+
+//
+#[derive(Resource, Default)]
+pub struct SystemRefRepo{
+    repository: HashMap<String, Entity>,
 }
 
-impl<T> Modifier<T> {
-    pub fn timed(&mut self, duration: Duration) -> &mut Self {
-        self.timer = Some(Timer::new(duration, TimerMode::Once));
-        self
+impl SystemRefRepo{
+    pub fn get<'a, I: SystemInput, O>(&self, name: impl Into<&'a String>) -> Option<SystemId<I, O>>{
+        let key: &String = name.into();
+        let Some(ent) = self.repository.get(key) else {
+            return None;
+        };
+        
+        Some(SystemId::from_entity(*ent))
+    }
+
+    pub fn register<I: SystemInput, O>(&mut self, name: impl Into<String>, system_id: SystemId<I, O>) -> SystemId<I, O> {
+        self.repository.insert(name.into(), system_id.entity());
+        system_id
+    }
+}
+
+pub struct RegisterSysref<I: SystemInput, O>(pub String, pub SystemId<I, O>);
+impl<I: SystemInput + 'static, O: 'static> Command for RegisterSysref<I, O>{
+    fn apply(self, world: &mut World) {
+        let Some(mut registry) = world.get_resource_mut::<SystemRefRepo>() else{
+            warn!("No Registered System Repository found!");
+            return;
+        };
+
+        registry.register(self.0, self.1);
+    }
+}
+
+pub trait SystemRefRepositoryCmdsExt{
+    fn add_sysref<I: SystemInput + 'static, O: 'static>(&mut self, name: impl Into<String>, system: SystemId<I, O>);
+    fn register_sysref<I: SystemInput + Send + 'static, O: Send + 'static, M>(&mut self, name: impl Into<String>, system: impl IntoSystem<I, O, M> + 'static);
+}
+
+impl<'w, 's> SystemRefRepositoryCmdsExt for Commands<'w, 's>{
+    fn add_sysref<I: SystemInput +'static, O: 'static>(&mut self, name: impl Into<String>, system: SystemId<I, O>) {
+        self.queue(RegisterSysref(name.into(), system));
+    }
+
+    fn register_sysref<I: SystemInput + Send + 'static, O: Send + 'static, M>(&mut self, name: impl Into<String>, system: impl IntoSystem<I, O, M> + 'static) {
+        let s: SystemId<I, O> = self.register_system(system);
+        self.queue(RegisterSysref(name.into(), s));
     }
 }

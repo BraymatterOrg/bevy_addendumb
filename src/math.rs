@@ -327,3 +327,22 @@ impl Scatter for DiskScatter {
             * (rng.gen::<f32>() * (1. - inner_radius_squared) + inner_radius_squared)
     }
 }
+
+pub fn get_xy_plane_intersection(ray_origin: Vec3, ray_direction: Vec3) -> Option<Vec3> {
+    // Make sure the ray isn't parallel to the plane (i.e., Dz shouldn't be zero)
+    if ray_direction.z.abs() < f32::EPSILON {
+        return None; // No intersection or ray is parallel to XY plane
+    }
+
+    // Solve for t where Pz = 0
+    let t = -ray_origin.z / ray_direction.z;
+
+    // We typically only care about intersections in the direction the ray is pointing
+    if t < 0.0 {
+        return None; // Intersection is "behind" the ray
+    }
+
+    // Final intersection point
+    let intersection = ray_origin + t * ray_direction;
+    Some(intersection)
+}
