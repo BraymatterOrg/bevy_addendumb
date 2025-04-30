@@ -1,6 +1,6 @@
 use std::{any::{type_name, Any}, collections::VecDeque, marker::PhantomData, time::Duration};
 
-use bevy::{asset::LoadState, ecs::{query::{QueryData, QueryFilter, WorldQuery}, system::SystemId}, pbr::{ExtendedMaterial, MaterialExtension}, prelude::*, render::render_resource::{AsBindGroup, ShaderRef}, utils::HashMap};
+use bevy::{asset::{weak_handle, LoadState}, ecs::{query::{QueryData, QueryFilter}, system::SystemId}, pbr::{ExtendedMaterial, MaterialExtension}, platform::collections::HashMap, prelude::*, render::render_resource::{AsBindGroup, ShaderRef}};
 use leafwing_input_manager::{prelude::ActionState, Actionlike};
 use serde::{Deserialize, Serialize};
 
@@ -71,7 +71,7 @@ pub fn remove_component_after<T: Component>(
         remove_component.timer.tick(time.delta());
 
         if remove_component.timer.finished() {
-            let Some(mut entcmds) = cmds.get_entity(ent) else {
+            let Ok(mut entcmds) = cmds.get_entity(ent) else {
                 warn!("Could not get entity for removing a component");
                 return;
             };
@@ -91,11 +91,11 @@ pub struct InsertTimedComponent<T: Any + Component> {
 }
 
 impl<T: Any + Component> EntityCommand for InsertTimedComponent<T> {
-    fn apply(self, id: Entity, world: &mut World) {
-        let has_t = world.entity(id).contains::<T>();
+    fn apply(self, mut entity: EntityWorldMut) {
+        let has_t = entity.contains::<T>();
 
         if !has_t {
-            world.entity_mut(id).insert((
+            entity.insert((
                 self.component,
                 RemoveComponentAfter::<T>::new(self.duration),
             ));
@@ -103,7 +103,7 @@ impl<T: Any + Component> EntityCommand for InsertTimedComponent<T> {
             return;
         }
 
-        let mut entity = world.entity_mut(id);
+
         let Some(mut remove) = entity.get_mut::<RemoveComponentAfter<T>>() else {
             warn!(
                 "Timed component `{}` is missing `RemoveComponentAfter`",
@@ -212,14 +212,17 @@ pub fn despawn_after(
             despawn.timer.tick(time.delta());
 
             if despawn.timer.finished() {
-                let Some(mut entcmds) = cmds.get_entity(ent) else {
+                let Ok(mut entcmds) = cmds.get_entity(ent) else {
                     warn!("Could not find entity for despawn_after command");
                     return;
                 };
 
                 match despawn.recursive {
-                    true => entcmds.despawn_recursive(),
-                    false => entcmds.despawn(),
+                    false => {
+                        entcmds.remove::<Children>();
+                        entcmds.despawn();
+                    },
+                    true => entcmds.despawn(),
                 }
             }
         });
@@ -227,18 +230,18 @@ pub fn despawn_after(
 
 pub fn goodbye_system(departures: Query<Entity, Added<Goodbye>>, mut cmds: Commands) {
     departures.iter().for_each(|d| {
-        let Some(entcmds) = cmds.get_entity(d) else {
+        let Ok(mut entcmds) = cmds.get_entity(d) else {
             warn!("Could not get entity for goodbye system");
             return;
         };
 
-        entcmds.despawn_recursive();
+        entcmds.despawn();
     });
 }
 
 pub fn to_batman(bruces: Query<Entity, With<ToBatman>>, mut cmds: Commands) {
     bruces.iter().for_each(|orphan_of_destiny| {
-        let Some(mut entcmds) = cmds.get_entity(orphan_of_destiny) else {
+        let Ok(mut entcmds) = cmds.get_entity(orphan_of_destiny) else {
             warn!("Could not get entity for to_batman");
             return;
         };
@@ -265,8 +268,8 @@ fn despawn_on_key(
 ) {
     query.iter_mut().for_each(|(ent, despawn_on_key)| {
         if input.just_released(despawn_on_key.0) {
-            if let Some(entity_commands) = cmds.get_entity(ent) {
-                entity_commands.despawn_recursive()
+            if let Ok(mut entity_commands) = cmds.get_entity(ent) {
+                entity_commands.despawn()
             }
         }
     });
@@ -290,8 +293,8 @@ fn despawn_on_gamepad_button(
     query.iter_mut().for_each(|(ent, despawn_on_button)| {
         for gamepad in gamepads_query.iter() {
             if gamepad.just_released(despawn_on_button.0) {
-                if let Some(entity_commands) = cmds.get_entity(ent) {
-                    entity_commands.despawn_recursive()
+                if let Ok(mut entity_commands) = cmds.get_entity(ent) {
+                    entity_commands.despawn()
                 }
             }
         }
@@ -301,8 +304,8 @@ fn despawn_on_gamepad_button(
 ///Despawns all entities with the specified component immediately
 pub fn despawn_ents_with_component<T: Component>(mut cmds: Commands, query: Query<Entity, With<T>>){
     query.iter().for_each(|ent|{
-        if let Some(entcmds) = cmds.get_entity(ent) {
-            entcmds.despawn_recursive();
+        if let Ok(mut entcmds) = cmds.get_entity(ent) {
+            entcmds.despawn();
         }
     })
 }
@@ -325,7 +328,7 @@ pub fn add_material_instance<T: Material>(
     ents_to_add: Query<(&AddMaterialInstance<T>, Entity), Added<AddMaterialInstance<T>>>,
 ) {
     ents_to_add.iter().for_each(|(instance, ent)| {
-        let Some(mut entcmds) = cmds.get_entity(ent) else {
+        let Ok(mut entcmds) = cmds.get_entity(ent) else {
             warn!("Could not get entity for adding a material instance");
             return;
         };
@@ -358,7 +361,7 @@ fn visible_after(
         visible_after.0.tick(time.delta());
 
         if visible_after.0.finished() {
-            if let Some(mut entity_commands) = cmds.get_entity(ent) {
+            if let Ok(mut entity_commands) = cmds.get_entity(ent) {
                 entity_commands.insert(Visibility::Visible);
                 entity_commands.remove::<MakeVisibleAfter>();
             }
@@ -375,7 +378,7 @@ pub trait FindNearestExt<'w> {
     fn get_or_nearest_ancestor(
         &'w self,
         entity: Entity,
-        parent_query: &Query<&Parent>,
+        parent_query: &Query<&ChildOf>,
     ) -> Option<Self::ReadOnlyReturn>;
 
     /// Returns the mutable result of the query for the given entity, or the first parent that
@@ -383,14 +386,14 @@ pub trait FindNearestExt<'w> {
     fn get_or_nearest_ancestor_mut(
         &'w mut self,
         entity: Entity,
-        parent_query: &Query<&Parent>,
+        parent_query: &Query<&ChildOf>,
     ) -> Option<Self::MutReturn>;
 
     /// Returns true if the given entity or any of its ancestors matches the query.
     fn contains_including_ancestors(
         &'w self,
         entity: Entity,
-        parent_query: &Query<&Parent>,
+        parent_query: &Query<&ChildOf>,
     ) -> bool;
 }
 
@@ -400,13 +403,13 @@ where
     Q: QueryData,
     F: QueryFilter,
 {
-    type ReadOnlyReturn = <Q::ReadOnly as WorldQuery>::Item<'w>;
-    type MutReturn = <Q as WorldQuery>::Item<'w>;
+    type ReadOnlyReturn = <Q::ReadOnly as QueryData>::Item<'w>;
+    type MutReturn = <Q as QueryData>::Item<'w>;
 
     fn get_or_nearest_ancestor(
         &'w self,
         entity: Entity,
-        parent_query: &Query<&Parent>,
+        parent_query: &Query<&ChildOf>,
     ) -> Option<Self::ReadOnlyReturn> {
         Iterator::chain(std::iter::once(entity), parent_query.iter_ancestors(entity))
             .find_map(|e| self.get(e).ok())
@@ -415,7 +418,7 @@ where
     fn get_or_nearest_ancestor_mut(
         &'w mut self,
         entity: Entity,
-        parent_query: &Query<&Parent>,
+        parent_query: &Query<&ChildOf>,
     ) -> Option<Self::MutReturn> {
         let matched = Iterator::chain(std::iter::once(entity), parent_query.iter_ancestors(entity))
             .find(|e| self.contains(*e));
@@ -425,7 +428,7 @@ where
     fn contains_including_ancestors(
         &'w self,
         entity: Entity,
-        parent_query: &Query<&Parent>,
+        parent_query: &Query<&ChildOf>,
     ) -> bool {
         Iterator::chain(std::iter::once(entity), parent_query.iter_ancestors(entity))
             .any(|e| self.contains(e))
@@ -486,7 +489,7 @@ pub struct ScrollExtension {
 }
 
 const SCROLL_SHADER_HANDLE: Handle<Shader> =
-    Handle::weak_from_u128(123669721584892194424305348291015135349);
+    weak_handle!("1347c9b7-c43a-48e7-d7b8-023a354b7dac");
 
 impl MaterialExtension for ScrollExtension {
     fn fragment_shader() -> ShaderRef {
@@ -507,8 +510,8 @@ pub fn despawn_on_action<T: Actionlike + Default + Clone + Copy + Eq + PartialEq
         .iter_mut()
         .for_each(|(ent, action_state, despawn_on_action)| {
             if action_state.just_released(&despawn_on_action.0) {
-                if let Some(entity_commands) = cmds.get_entity(ent) {
-                    entity_commands.despawn_recursive()
+                if let Ok(mut entity_commands) = cmds.get_entity(ent) {
+                    entity_commands.despawn()
                 }
             }
         });
@@ -542,7 +545,7 @@ fn await_asset(
         let state = assets.load_state(await_asset.asset.id());
 
         if let Loaded = state {
-            cmds.run_system_with_input(await_asset.system, awaiter);
+            cmds.run_system_with(await_asset.system, awaiter);
         }
 
         if let Loaded | Failed(_) = state {

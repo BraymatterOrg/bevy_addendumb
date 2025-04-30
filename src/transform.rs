@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use bevy::{ecs::{component::{ComponentHooks, StorageType}, system::QueryLens}, prelude::*};
+use bevy::{ecs::{component::{ Mutable, StorageType}, system::QueryLens}, prelude::*};
 
 use crate::math::ExpDecay;
 
@@ -134,9 +134,11 @@ impl FollowSpline {
 //Which leads to hacky workarounds like below. 
 impl Component for FollowSpline {
     const STORAGE_TYPE: StorageType = StorageType::Table;
+    type Mutability = Mutable;
 
-    fn register_component_hooks(hooks: &mut ComponentHooks) {
-        hooks.on_insert(|mut world, entity, _| {
+    fn on_add() -> Option<bevy::ecs::component::ComponentHook> {
+        Some(|mut world, ctx| {
+            let  entity = ctx.entity;
             let move_to = world
                 .get::<FollowSpline>(entity)
                 .expect("`FollowSpline` is missing in its `on_insert` hook");
@@ -170,7 +172,7 @@ impl Component for FollowSpline {
                     .expect("`MoveTo` is missing even though we just had it")
                     .aimed_pos = Some(target_pos.translation());
             }
-        });
+        })
     }
 }
 
@@ -219,7 +221,7 @@ pub fn move_to(
 
         //If the timer's expired remove this component
         if t >= 1.0 && mover.auto_remove {
-            let Some(mut entcmds) = cmds.get_entity(mover_ent) else {
+            let Ok(mut entcmds) = cmds.get_entity(mover_ent) else {
                 warn!("Could not find entcmds to remove follow spline from");
                 return;
             };

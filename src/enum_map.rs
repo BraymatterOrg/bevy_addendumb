@@ -2,8 +2,8 @@ use std::fmt::{self, Formatter};
 use std::hash::Hash;
 use std::fmt::Debug;
 
-use bevy::utils::hashbrown::hash_map::{Iter, IterMut};
-use bevy::{reflect::Reflect, utils::HashMap};
+use bevy::platform::collections::hash_map::{Iter, IterMut};
+use bevy::{reflect::Reflect, platform::collections::HashMap};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 

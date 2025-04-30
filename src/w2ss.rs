@@ -1,8 +1,5 @@
 use std::marker::PhantomData;
-
 use bevy::{prelude::*, ecs::system::SystemParam, reflect::Reflect, render::primitives::Aabb};
-
-
 
 #[derive(Default)]
 pub struct W2ssPlugin<CameraMarker: Component + Default + TypePath, A: AabbAlternative + Component>
@@ -60,7 +57,7 @@ impl<C: Component + Default> WorldToScreenspace<C> {
             aabb_query,
         } = param;
 
-        let Ok((camera, cam_gtsf)) = camera_query.get_single() else {
+        let Ok((camera, cam_gtsf)) = camera_query.single() else {
             debug!("Could not get camera for WorldToScreenSpace calculations.");
             return;
         };
