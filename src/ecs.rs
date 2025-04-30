@@ -1,6 +1,21 @@
-use std::{any::{type_name, Any}, collections::VecDeque, marker::PhantomData, time::Duration};
+use std::{
+    any::{type_name, Any},
+    collections::VecDeque,
+    marker::PhantomData,
+    time::Duration,
+};
 
-use bevy::{asset::{weak_handle, LoadState}, ecs::{query::{QueryData, QueryFilter}, system::SystemId}, pbr::{ExtendedMaterial, MaterialExtension}, platform::collections::HashMap, prelude::*, render::render_resource::{AsBindGroup, ShaderRef}};
+use bevy::{
+    asset::{weak_handle, LoadState},
+    ecs::{
+        query::{QueryData, QueryFilter},
+        system::SystemId,
+    },
+    pbr::{ExtendedMaterial, MaterialExtension},
+    platform::collections::HashMap,
+    prelude::*,
+    render::render_resource::{AsBindGroup, ShaderRef},
+};
 use leafwing_input_manager::{prelude::ActionState, Actionlike};
 use serde::{Deserialize, Serialize};
 
@@ -103,7 +118,6 @@ impl<T: Any + Component> EntityCommand for InsertTimedComponent<T> {
             return;
         }
 
-
         let Some(mut remove) = entity.get_mut::<RemoveComponentAfter<T>>() else {
             warn!(
                 "Timed component `{}` is missing `RemoveComponentAfter`",
@@ -121,7 +135,6 @@ impl<T: Any + Component> EntityCommand for InsertTimedComponent<T> {
         remove.timer = Timer::new(self.duration, TimerMode::Once);
     }
 }
-
 
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
@@ -221,7 +234,7 @@ pub fn despawn_after(
                     false => {
                         entcmds.remove::<Children>();
                         entcmds.despawn();
-                    },
+                    }
                     true => entcmds.despawn(),
                 }
             }
@@ -302,14 +315,16 @@ fn despawn_on_gamepad_button(
 }
 
 ///Despawns all entities with the specified component immediately
-pub fn despawn_ents_with_component<T: Component>(mut cmds: Commands, query: Query<Entity, With<T>>){
-    query.iter().for_each(|ent|{
+pub fn despawn_ents_with_component<T: Component>(
+    mut cmds: Commands,
+    query: Query<Entity, With<T>>,
+) {
+    query.iter().for_each(|ent| {
         if let Ok(mut entcmds) = cmds.get_entity(ent) {
             entcmds.despawn();
         }
     })
 }
-
 
 #[derive(Component, Default)]
 pub struct AddMaterialInstance<T: Material> {
@@ -337,7 +352,6 @@ pub fn add_material_instance<T: Material>(
         entcmds.remove::<AddMaterialInstance<T>>();
     });
 }
-
 
 /// A component that will set an entity to [`Visibility::Visible`] after the given duration.
 /// The duration is affected by pausing the game.
@@ -488,8 +502,7 @@ pub struct ScrollExtension {
     pub scroll: Vec2,
 }
 
-const SCROLL_SHADER_HANDLE: Handle<Shader> =
-    weak_handle!("1347c9b7-c43a-48e7-d7b8-023a354b7dac");
+const SCROLL_SHADER_HANDLE: Handle<Shader> = weak_handle!("1347c9b7-c43a-48e7-d7b8-023a354b7dac");
 
 impl MaterialExtension for ScrollExtension {
     fn fragment_shader() -> ShaderRef {
@@ -516,7 +529,6 @@ pub fn despawn_on_action<T: Actionlike + Default + Clone + Copy + Eq + PartialEq
             }
         });
 }
-
 
 /// Waits until the given asset is loaded, then runs the given system
 #[derive(Component)]
@@ -554,7 +566,6 @@ fn await_asset(
     }
 }
 
-
 /// Contains a string identifier typically loaded from a non-compile time location
 /// At runtime the program will register SystemId's into a Hashmap using the reference as a key, and the entity containing the registered system as a value
 #[derive(Deserialize, Serialize, Reflect, Clone, Debug)]
@@ -562,30 +573,37 @@ pub struct Sysref(pub String);
 
 //
 #[derive(Resource, Default)]
-pub struct SystemRefRepo{
+pub struct SystemRefRepo {
     repository: HashMap<String, Entity>,
 }
 
-impl SystemRefRepo{
-    pub fn get<'a, I: SystemInput, O>(&self, name: impl Into<&'a String>) -> Option<SystemId<I, O>>{
+impl SystemRefRepo {
+    pub fn get<'a, I: SystemInput, O>(
+        &self,
+        name: impl Into<&'a String>,
+    ) -> Option<SystemId<I, O>> {
         let key: &String = name.into();
         let Some(ent) = self.repository.get(key) else {
             return None;
         };
-        
+
         Some(SystemId::from_entity(*ent))
     }
 
-    pub fn register<I: SystemInput, O>(&mut self, name: impl Into<String>, system_id: SystemId<I, O>) -> SystemId<I, O> {
+    pub fn register<I: SystemInput, O>(
+        &mut self,
+        name: impl Into<String>,
+        system_id: SystemId<I, O>,
+    ) -> SystemId<I, O> {
         self.repository.insert(name.into(), system_id.entity());
         system_id
     }
 }
 
 pub struct RegisterSysref<I: SystemInput, O>(pub String, pub SystemId<I, O>);
-impl<I: SystemInput + 'static, O: 'static> Command for RegisterSysref<I, O>{
+impl<I: SystemInput + 'static, O: 'static> Command for RegisterSysref<I, O> {
     fn apply(self, world: &mut World) {
-        let Some(mut registry) = world.get_resource_mut::<SystemRefRepo>() else{
+        let Some(mut registry) = world.get_resource_mut::<SystemRefRepo>() else {
             warn!("No Registered System Repository found!");
             return;
         };
@@ -594,17 +612,33 @@ impl<I: SystemInput + 'static, O: 'static> Command for RegisterSysref<I, O>{
     }
 }
 
-pub trait SystemRefRepositoryCmdsExt{
-    fn add_sysref<I: SystemInput + 'static, O: 'static>(&mut self, name: impl Into<String>, system: SystemId<I, O>);
-    fn register_sysref<I: SystemInput + Send + 'static, O: Send + 'static, M>(&mut self, name: impl Into<String>, system: impl IntoSystem<I, O, M> + 'static);
+pub trait SystemRefRepositoryCmdsExt {
+    fn add_sysref<I: SystemInput + 'static, O: 'static>(
+        &mut self,
+        name: impl Into<String>,
+        system: SystemId<I, O>,
+    );
+    fn register_sysref<I: SystemInput + Send + 'static, O: Send + 'static, M>(
+        &mut self,
+        name: impl Into<String>,
+        system: impl IntoSystem<I, O, M> + 'static,
+    );
 }
 
-impl<'w, 's> SystemRefRepositoryCmdsExt for Commands<'w, 's>{
-    fn add_sysref<I: SystemInput +'static, O: 'static>(&mut self, name: impl Into<String>, system: SystemId<I, O>) {
+impl<'w, 's> SystemRefRepositoryCmdsExt for Commands<'w, 's> {
+    fn add_sysref<I: SystemInput + 'static, O: 'static>(
+        &mut self,
+        name: impl Into<String>,
+        system: SystemId<I, O>,
+    ) {
         self.queue(RegisterSysref(name.into(), system));
     }
 
-    fn register_sysref<I: SystemInput + Send + 'static, O: Send + 'static, M>(&mut self, name: impl Into<String>, system: impl IntoSystem<I, O, M> + 'static) {
+    fn register_sysref<I: SystemInput + Send + 'static, O: Send + 'static, M>(
+        &mut self,
+        name: impl Into<String>,
+        system: impl IntoSystem<I, O, M> + 'static,
+    ) {
         let s: SystemId<I, O> = self.register_system(system);
         self.queue(RegisterSysref(name.into(), s));
     }

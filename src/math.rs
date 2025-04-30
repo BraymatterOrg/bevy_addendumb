@@ -1,4 +1,9 @@
-use std::{any::TypeId, f32::consts::TAU, ops::{Add, Div, Mul, Sub}, time::Duration};
+use std::{
+    any::TypeId,
+    f32::consts::TAU,
+    ops::{Add, Div, Mul, Sub},
+    time::Duration,
+};
 
 use bevy::{math::VectorSpace, prelude::*, utils::TypeIdMap};
 use rand::Rng;
@@ -206,8 +211,6 @@ impl ElasticOut for f32 {
         -(-a * TAU * (clamped + 1.)).cos() * 2f32.powf(-b * clamped) + 1.
     }
 }
-
-
 
 pub struct SampleCtx<'a, P> {
     pub param: &'a P,

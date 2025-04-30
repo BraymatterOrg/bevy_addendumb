@@ -1,5 +1,5 @@
+use bevy::{ecs::system::SystemParam, prelude::*, reflect::Reflect, render::primitives::Aabb};
 use std::marker::PhantomData;
-use bevy::{prelude::*, ecs::system::SystemParam, reflect::Reflect, render::primitives::Aabb};
 
 #[derive(Default)]
 pub struct W2ssPlugin<CameraMarker: Component + Default + TypePath, A: AabbAlternative + Component>

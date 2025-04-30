@@ -1,6 +1,12 @@
 use std::time::Duration;
 
-use bevy::{ecs::{component::{ Mutable, StorageType}, system::QueryLens}, prelude::*};
+use bevy::{
+    ecs::{
+        component::{Mutable, StorageType},
+        system::QueryLens,
+    },
+    prelude::*,
+};
 
 use crate::math::ExpDecay;
 
@@ -28,42 +34,38 @@ impl TransformTarget {
     pub fn position(self, mut gtsfs_query: QueryLens<&GlobalTransform>) -> Option<GlobalTransform> {
         match self {
             TransformTarget::Point(target) => Some(GlobalTransform::from(target)),
-            TransformTarget::Entity(target) => {
-                gtsfs_query
-                .query()
-                .get(target)
-                .ok().copied()
-            },
+            TransformTarget::Entity(target) => gtsfs_query.query().get(target).ok().copied(),
             TransformTarget::EntityOffset(ent, offset) => {
-                    let query = gtsfs_query.query();
-                    let Ok(tgt) = query.get(ent) else{
-                        warn!("Could not get entity for Transform Target");
-                        return None;
-                    };
+                let query = gtsfs_query.query();
+                let Ok(tgt) = query.get(ent) else {
+                    warn!("Could not get entity for Transform Target");
+                    return None;
+                };
 
+                let mut tgt = tgt.compute_transform();
+                tgt.translation += offset.translation;
+                tgt.rotation *= offset.rotation;
 
-                    let mut tgt = tgt.compute_transform();
-                    tgt.translation += offset.translation;
-                    tgt.rotation *= offset.rotation;
-
-                    Some(GlobalTransform::from(tgt))
+                Some(GlobalTransform::from(tgt))
             }
         }
     }
 
     /// Intended to be used in places where a query cannot be passed in. Relies on the caller to provide the relevant transforms
-    pub fn calculate(self, target_tsf: Option<GlobalTransform>, target_ent_tsf: Option<GlobalTransform>) -> Option<GlobalTransform> {
+    pub fn calculate(
+        self,
+        target_tsf: Option<GlobalTransform>,
+        target_ent_tsf: Option<GlobalTransform>,
+    ) -> Option<GlobalTransform> {
         match self {
-            TransformTarget::Point(transform) => {
-                Some(GlobalTransform::from(transform))
-            },
+            TransformTarget::Point(transform) => Some(GlobalTransform::from(transform)),
             TransformTarget::Entity(_entity) => {
                 let Some(gtsf) = target_ent_tsf else {
                     return None;
                 };
 
                 Some(gtsf)
-            },
+            }
             TransformTarget::EntityOffset(_, _) => {
                 let Some(ent_gtsf) = target_ent_tsf else {
                     return None;
@@ -79,7 +81,7 @@ impl TransformTarget {
                 tsf.rotation *= ent_tsf.rotation;
 
                 Some(GlobalTransform::from(tsf))
-            },
+            }
         }
     }
 }
@@ -114,7 +116,7 @@ impl FollowSpline {
         end_vel: Vec3,
         duration: Duration,
         path_correction: f32,
-        auto_remove: bool
+        auto_remove: bool,
     ) -> Self {
         Self {
             start_pos: None,
@@ -130,30 +132,28 @@ impl FollowSpline {
     }
 }
 
-//TODO: Remove this garbage. It should never have been in a component hook. Deferred world doesn't allow queries etc. 
-//Which leads to hacky workarounds like below. 
+//TODO: Remove this garbage. It should never have been in a component hook. Deferred world doesn't allow queries etc.
+//Which leads to hacky workarounds like below.
 impl Component for FollowSpline {
     const STORAGE_TYPE: StorageType = StorageType::Table;
     type Mutability = Mutable;
 
     fn on_add() -> Option<bevy::ecs::component::ComponentHook> {
         Some(|mut world, ctx| {
-            let  entity = ctx.entity;
+            let entity = ctx.entity;
             let move_to = world
                 .get::<FollowSpline>(entity)
                 .expect("`FollowSpline` is missing in its `on_insert` hook");
 
             let (target_tsf, ent_tsf) = match move_to.target {
-                TransformTarget::Point(transform) => {
-                    (Some(GlobalTransform::from(transform)), None)
-                },
+                TransformTarget::Point(transform) => (Some(GlobalTransform::from(transform)), None),
                 TransformTarget::Entity(tgt_ent) => {
                     let Some(ent_tsf) = world.get::<GlobalTransform>(tgt_ent) else {
                         warn!("Could not find ent transform in component hook");
                         return;
                     };
                     (None, Some(*ent_tsf))
-                },
+                }
                 TransformTarget::EntityOffset(tgt_ent, transform) => {
                     let Some(ent_tsf) = world.get::<GlobalTransform>(tgt_ent) else {
                         warn!("Could not find ent transform in component hook");
@@ -161,7 +161,7 @@ impl Component for FollowSpline {
                     };
 
                     (Some(GlobalTransform::from(transform)), Some(*ent_tsf))
-                },
+                }
             };
 
             let target_pos = move_to.target.calculate(target_tsf, ent_tsf);
@@ -225,7 +225,7 @@ pub fn move_to(
                 warn!("Could not find entcmds to remove follow spline from");
                 return;
             };
-            
+
             entcmds.remove::<FollowSpline>();
         }
     }

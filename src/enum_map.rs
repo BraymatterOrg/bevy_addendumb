@@ -1,12 +1,11 @@
+use std::fmt::Debug;
 use std::fmt::{self, Formatter};
 use std::hash::Hash;
-use std::fmt::Debug;
 
 use bevy::platform::collections::hash_map::{Iter, IterMut};
-use bevy::{reflect::Reflect, platform::collections::HashMap};
+use bevy::{platform::collections::HashMap, reflect::Reflect};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
-
 
 #[derive(Serialize, Deserialize, Reflect, Eq, PartialEq, Clone)]
 #[serde(transparent)]

@@ -1,8 +1,8 @@
 pub mod ecs;
 pub mod enum_map;
+pub mod math;
 pub mod transform;
 pub mod w2ss;
-pub mod math;
 
 /// Generates a cloneable trait with the given bounds. The bounds must be object-safe. The generated
 /// trait has a function `fn dyn_clone(&self) -> Box<dyn GeneratedTrait>` and is blanket impled for
