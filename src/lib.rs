@@ -54,7 +54,7 @@ macro_rules! dyn_clone {
 }
 #[cfg(test)]
 mod test {
-    use bevy::utils::HashMap;
+    use bevy::platform::collections::HashMap;
     use strum_macros::EnumIter;
 
     use super::*;
